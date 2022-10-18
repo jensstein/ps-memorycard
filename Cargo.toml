@@ -1,0 +1,19 @@
+[package]
+name = "ps-memorycard"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# cbc: Cipher Block Chaining cryptographic mode, https://docs.rs/cbc/latest/cbc/
+cbc = "0.1"
+clap = { version = "4.0", features = ["derive"] }
+# des: Data Encryption Standard, https://docs.rs/des/latest/des/
+# This is the cryptographic standard used by the MagicGate authentication used by ps2 memory cards
+# https://github.com/RustCrypto/block-ciphers
+des = "0.8"
+rusb = "0.9"
