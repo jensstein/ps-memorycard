@@ -19,7 +19,7 @@ pub enum CardType {
 // By returning an enum like this instead of returning a boxed trait, I avoid being forced to
 // handle references and implement casting to Any.
 // https://bennett.dev/dont-use-boxed-trait-objects-for-struct-internals/
-pub enum CardReturn {
+pub enum CardResult {
     PS1,
     PS2(PS2MemoryCard),
 }
@@ -107,7 +107,7 @@ fn print_bytes(bytes: &[u8]) {
     println!();
 }
 
-pub fn get_memory_card(vendor: u16, product: u16) -> Result<Option<CardReturn>, Error> {
+pub fn get_memory_card(vendor: u16, product: u16) -> Result<Option<CardResult>, Error> {
     for device in rusb::devices()?.iter() {
         let device_desc = device.device_descriptor()?;
         if device_desc.vendor_id() == vendor && device_desc.product_id() == product {
@@ -116,7 +116,7 @@ pub fn get_memory_card(vendor: u16, product: u16) -> Result<Option<CardReturn>, 
             match get_card_type(&handle)? {
                 CardType::PS2 => {
                     let mc = PS2MemoryCard::new(handle)?;
-                    return Ok(Some(CardReturn::PS2(mc)));
+                    return Ok(Some(CardResult::PS2(mc)));
                 },
                 _ => {}
             }

@@ -1,4 +1,4 @@
-use ps_memorycard::{auth::read_card_keys, errors::Error, memorycard::PS2MemoryCard, CardReturn, get_memory_card, print_specs};
+use ps_memorycard::{auth::read_card_keys, errors::Error, memorycard::PS2MemoryCard, CardResult, get_memory_card, print_specs};
 
 use clap::{Parser, Subcommand};
 
@@ -20,10 +20,10 @@ enum Commands {
 
 fn get_and_authenticate_card(keys_directory: &str) -> Result<PS2MemoryCard, Error> {
     match get_memory_card(0x054c, 0x02ea)? {
-        Some(CardReturn::PS1) => {
+        Some(CardResult::PS1) => {
             return Err("PS1 cards are not supported yet.".into());
         },
-        Some(CardReturn::PS2(mc)) => {
+        Some(CardResult::PS2(mc)) => {
             if !mc.is_authenticated()? {
                 let card_keys = read_card_keys(Path::new(keys_directory))?;
                 match mc.authenticate(&card_keys) {
