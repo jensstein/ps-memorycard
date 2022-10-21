@@ -17,3 +17,10 @@ clap = { version = "4.0", features = ["derive"] }
 # https://github.com/RustCrypto/block-ciphers
 des = "0.8"
 rusb = "0.9"
+
+[features]
+# This feature is for running tests with a physical ps2 card attached
+# https://stackoverflow.com/a/50568293
+# `cargo test --features test-ps2-card`
+# https://users.rust-lang.org/t/cargo-test-specifying-features/22819
+test-ps2-card = []
