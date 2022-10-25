@@ -18,6 +18,9 @@ clap = { version = "4.0", features = ["derive"] }
 des = "0.8"
 rusb = "0.9"
 
+[dev-dependencies]
+mockall = "0.11"
+
 [features]
 # This feature is for running tests with a physical ps2 card attached
 # https://stackoverflow.com/a/50568293

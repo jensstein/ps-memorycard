@@ -36,7 +36,23 @@ impl CardInfo {
     }
 }
 
-pub fn write_bytes_to_device(device: &rusb::DeviceHandle<rusb::GlobalContext>, cmd: &[u8]) -> Result<usize, Error> {
+// When this module is compiled for tests a MockUSBDevice trait is added
+#[cfg_attr(test, mockall::automock)]
+pub trait USBDevice {
+    fn write_bulk(&self, endpoint: u8, buf: &[u8], timeout: Duration) -> Result<usize, rusb::Error>;
+    fn read_bulk(&self, endpoint: u8, buf: &mut [u8], timeout: Duration) -> Result<usize, rusb::Error>;
+}
+
+impl USBDevice for rusb::DeviceHandle<rusb::GlobalContext> {
+    fn write_bulk(&self, endpoint: u8, buf: &[u8], timeout: Duration) -> Result<usize, rusb::Error>{
+        self.write_bulk(endpoint, buf, timeout)
+    }
+    fn read_bulk(&self, endpoint: u8, buf: &mut [u8], timeout: Duration) -> Result<usize, rusb::Error>{
+        self.read_bulk(endpoint, buf, timeout)
+    }
+}
+
+pub fn write_bytes_to_device(device: &dyn USBDevice, cmd: &[u8]) -> Result<usize, Error> {
     let result = device.write_bulk(0x02, cmd, Duration::from_millis(500))?;
     if result <= 0 {
         eprintln!("WARN: write to device was successful but no bytes were written");
@@ -44,7 +60,7 @@ pub fn write_bytes_to_device(device: &rusb::DeviceHandle<rusb::GlobalContext>, c
     Ok(result)
 }
 
-pub fn read_bytes_from_device(device: &rusb::DeviceHandle<rusb::GlobalContext>, response_len: usize) -> Result<Vec<u8>, Error> {
+pub fn read_bytes_from_device(device: &dyn USBDevice, response_len: usize) -> Result<Vec<u8>, Error> {
     // The response buffer must be initialized with zeros. Initializing with the vec! macro is
     // more efficient than Vec::with_capacity + Vec::resize: https://doc.rust-lang.org/std/vec/struct.Vec.html
     let mut response_buffer = vec![0; response_len];
@@ -55,7 +71,7 @@ pub fn read_bytes_from_device(device: &rusb::DeviceHandle<rusb::GlobalContext>, 
     Ok(response_buffer)
 }
 
-pub fn get_card_type(device: &rusb::DeviceHandle<rusb::GlobalContext>) -> Result<CardType, Error> {
+pub fn get_card_type(device: &dyn USBDevice) -> Result<CardType, Error> {
     // Short command for getting the type of the memory card. 1 indicates PS1 and 2 indicates
     // PS2.
     // https://github.com/vpelletier/ps3-memorycard-adapter/blob/a925dd392f4af6c4273c04f8743e8a46f12c2260/nbd/memory_card_reader.py#L96
@@ -135,4 +151,52 @@ pub fn print_specs(card: &dyn MemoryCard) -> Result<(), Error> {
 
 pub fn validate_response_success(response: &[u8]) -> bool {
     response[0] == 0x55 && response[1] == 0x5a
+}
+
+#[cfg(test)]
+mod test {
+    use mockall::predicate::{eq, function, always};
+    use crate::MockUSBDevice;
+    use super::*;
+
+    #[test]
+    fn test_write_to_device() {
+        let mut device = MockUSBDevice::new();
+        device.expect_write_bulk().times(1).return_const(Ok(2));
+        let result = write_bytes_to_device(&device, &[0, 0]).expect("Unable to write to device");
+        assert_eq!(2, result);
+    }
+
+    #[test]
+    fn test_read_from_device() {
+        let mut device = MockUSBDevice::new();
+        device.expect_read_bulk().times(1).return_once(move |_endpoint, response_buffer, _timeout| {
+            response_buffer.iter_mut().for_each(|item| *item = 1);
+            Ok(3)
+        });
+        let result = read_bytes_from_device(&device, 3).expect("Unable to read from device");
+        assert_eq!(vec![1, 1, 1], result);
+    }
+
+    #[test]
+    fn test_get_card_type() {
+        let mut device = MockUSBDevice::new();
+        device.expect_write_bulk()
+            .times(1)
+            .with(eq(0x02), function(|v| v == &[0xaa, 0x40]), always())
+            .return_const(Ok(2));
+        device.expect_read_bulk().times(1).return_once(move |_endpoint, response_buffer, _timeout| {
+            reassign_mut_array(&[0x55, 0x02], response_buffer);
+            Ok(2)
+        });
+        let result = get_card_type(&device).expect("Unable to get card type");
+        assert_eq!(CardType::PS2, result);
+    }
+
+    fn reassign_mut_array(source: &[u8], destination: &mut [u8]) {
+        destination.iter_mut().for_each(|item| *item = 0xff);
+        source.iter().enumerate().for_each(|(i, item)| {
+            destination[i] = *item;
+        });
+    }
 }
