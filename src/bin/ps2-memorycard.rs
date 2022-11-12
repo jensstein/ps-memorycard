@@ -18,9 +18,11 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Prints card info
     Specs,
-    // Command for dumping the entire card to an image file
-    DumpImg {
+    /// Dumps the entire card to an image file
+    DumpImage {
+        /// File to write image to
         #[arg(value_name = "output-file")]
         destination: String
     },
@@ -77,7 +79,7 @@ fn cli() -> Result<(), Error> {
     let info = mc.get_card_specs()?;
     match args.command {
         Commands::Specs => print_specs(&mc)?,
-        Commands::DumpImg {destination} => {
+        Commands::DumpImage {destination} => {
             dump_card_image(&mc, &info, &destination)?;
         },
     }
