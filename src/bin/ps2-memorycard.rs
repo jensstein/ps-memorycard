@@ -1,8 +1,11 @@
-use ps_memorycard::{auth::read_card_keys, errors::Error, memorycard::PS2MemoryCard, CardResult, get_memory_card, print_specs};
+use ps_memorycard::{auth::read_card_keys, errors::Error, memorycard::PS2MemoryCard, CardInfo, CardResult, get_memory_card, print_specs};
+use ps_memorycard::memorycard::MemoryCard;
 
 use clap::{Parser, Subcommand};
 
 use std::path::Path;
+use std::fs::File;
+use std::io::Write;
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -16,6 +19,11 @@ struct Args {
 #[derive(Subcommand)]
 enum Commands {
     Specs,
+    // Command for dumping the entire card to an image file
+    DumpImg {
+        #[arg(value_name = "output-file")]
+        destination: String
+    },
 }
 
 fn get_and_authenticate_card(keys_directory: &str) -> Result<PS2MemoryCard, Error> {
@@ -44,11 +52,34 @@ fn get_and_authenticate_card(keys_directory: &str) -> Result<PS2MemoryCard, Erro
     }
 }
 
+fn dump_card_image(card: &dyn MemoryCard, info: &CardInfo, destination: &str) -> Result<(), Error> {
+    let mut file = File::create(&destination)?;
+    println!("Dumping image to {}", destination);
+    let pages = info.card_size / info.page_size as u32;
+    let bar = indicatif::ProgressBar::new((pages * info.page_size as u32).into());
+    let bar_style = match indicatif::ProgressStyle::with_template("[{elapsed}] {bar:40} {bytes:>7}/{total_bytes:7} {msg}") {
+        Ok(bar_style) => bar_style,
+        Err(error) => return Err(Error::new(format!("Unexpected error when trying to set progress bar style: {}", error)))
+    };
+    bar.set_style(bar_style);
+    for i in 0..pages {
+        bar.inc(info.page_size.into());
+        let buf = card.read_page(i, info.page_size)?;
+        file.write_all(&buf)?;
+    }
+    bar.finish();
+    Ok(())
+}
+
 fn cli() -> Result<(), Error> {
     let args = Args::parse();
     let mc = get_and_authenticate_card(&args.keys_directory)?;
+    let info = mc.get_card_specs()?;
     match args.command {
         Commands::Specs => print_specs(&mc)?,
+        Commands::DumpImg {destination} => {
+            dump_card_image(&mc, &info, &destination)?;
+        },
     }
     Ok(())
 }

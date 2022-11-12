@@ -25,11 +25,12 @@ pub enum CardResult {
 }
 
 pub struct CardInfo {
-    page_size: u16,
+    pub page_size: u16,
     block_size: u16,
     // This value doesn't seem to be reliable. I have a 64MB card which reports itself as 8MB.
-    card_size: u32,
+    pub card_size: u32,
 }
+
 impl CardInfo {
     fn new(page_size: u16, block_size: u16, pages: u32) -> Self {
         Self {page_size, block_size, card_size: pages * page_size as u32}
@@ -153,6 +154,17 @@ pub fn validate_response_success(response: &[u8]) -> bool {
     response[0] == 0x55 && response[1] == 0x5a
 }
 
+// https://csrc.nist.gov/glossary/term/error_detection_code
+// This function is a port of the `calcEDC` function in ps3mca-tool
+fn calculate_edc(buf: &[u8]) -> u8 {
+    let mut checksum = 0;
+    for b in buf {
+        checksum ^= b;
+    }
+    checksum
+}
+
+
 #[cfg(test)]
 mod test {
     use mockall::predicate::{eq, function, always};
@@ -191,6 +203,12 @@ mod test {
         });
         let result = get_card_type(&device).expect("Unable to get card type");
         assert_eq!(CardType::PS2, result);
+    }
+
+    #[test]
+    fn test_calculate_edc() {
+        let result = calculate_edc(&[0x00, 0x01, 0xff, 0xc0]);
+        assert_eq!(0x3e, result);
     }
 
     fn reassign_mut_array(source: &[u8], destination: &mut [u8]) {

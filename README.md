@@ -30,3 +30,4 @@ cat /sys/kernel/debug/usb/usbmon/1u
 - <https://github.com/PCSX2/pcsx2/pull/4274>
 - <https://archive.org/details/Magicgate>
 - <https://archive.fosdem.org/2021/schedule/event/pcsx2/attachments/slides/4422/export/events/attachments/pcsx2/slides/4422/pcsx2_fosdem.pdf>
+- <https://psi-rockin.github.io/ps2tek/#sio2ps2memcards>

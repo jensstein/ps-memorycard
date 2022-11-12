@@ -1,5 +1,8 @@
-use crate::{errors::Error, CardInfo, length_in_bytes, read_u16_byte,
+use crate::{errors::Error, CardInfo, calculate_edc, length_in_bytes, read_u16_byte,
     read_u32_byte, write_bytes_to_device, read_bytes_from_device, CardType};
+
+// The commands here are mostly ported from ps3mca-tool and some are documented on
+// https://psi-rockin.github.io/ps2tek/#sio2ps2memcards
 
 pub trait MemoryCard {
     fn new(device: rusb::DeviceHandle<rusb::GlobalContext>) -> Result<Self, Error> where Self: Sized;
@@ -7,6 +10,7 @@ pub trait MemoryCard {
     fn read_from_device(&self, response_len: usize) -> Result<Vec<u8>, Error>;
     fn get_card_specs(&self) -> Result<CardInfo, Error>;
     fn get_card_type(&self) -> CardType;
+    fn read_page(&self, page_number: u32, page_size: u16) -> Result<Vec<u8>, Error>; // This function reads frames from a PS1 card and pages from a PS2 card
 }
 
 pub struct PS2MemoryCard {
@@ -30,6 +34,8 @@ impl MemoryCard for PS2MemoryCard {
     }
 
     fn read_from_device(&self, response_len: usize) -> Result<Vec<u8>, Error> {
+        // If you read too few bytes you will get seemingly unintelligent errors. ps3mca-tool takes
+        // the approach of always reading 1024 bytes.
         let response = read_bytes_from_device(&self.device, response_len)?;
         if response[0] != 0x55 {
             return Err(Error::new(format!("Received invalid response: {:?}", response)));
@@ -50,6 +56,39 @@ impl MemoryCard for PS2MemoryCard {
 
     fn get_card_type(&self) -> CardType {
         CardType::PS2
+    }
+
+    fn read_page(&self, page_number: u32, page_size: u16) -> Result<Vec<u8>, Error> {
+        let page_number_in_bytes = u32::to_le_bytes(page_number);
+        let page_number_edc = calculate_edc(&page_number_in_bytes);
+        // 23h is the command to start reading
+        let cmd = [&[0x81, 0x23], page_number_in_bytes.as_ref(), &[page_number_edc], &[0, 0]].concat();
+        self.write_to_device(&cmd)?;
+        // Only read to verify response
+        self.read_from_device(1024)?;
+        let count = page_size >> 7;
+        let mut page_contents = vec![];
+        for _ in 0..count {
+            // 43h reads data from the address which is set by the 23h command.
+            // That means that we don't specify the address to read from here.
+            let subcmd = [[0x81, 0x43, 128].as_ref(), [0; 131].as_ref()].concat();
+            self.write_to_device(&subcmd)?;
+            let subresult = self.read_from_device(138)?;
+            if subresult.len() == 138 {
+                page_contents.extend(&subresult[8..136]);
+            } else {
+                return Err(Error::new(
+                    format!("Page data read from device returned invalid response length: {}",
+                    subresult.len())));
+            }
+        };
+        // TODO: there should be a verification of the checksum here if the card supports it.
+
+        // 81h means read end
+        self.write_to_device(&[0x81, 0x81, 0, 0])?;
+        // We don't need the response other than for validation
+        self.read_from_device(1024)?;
+        Ok(page_contents)
     }
 }
 

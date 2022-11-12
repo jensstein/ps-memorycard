@@ -16,6 +16,7 @@ clap = { version = "4.0", features = ["derive"] }
 # This is the cryptographic standard used by the MagicGate authentication used by ps2 memory cards
 # https://github.com/RustCrypto/block-ciphers
 des = "0.8"
+indicatif = "0.17"
 rusb = "0.9"
 
 [dev-dependencies]

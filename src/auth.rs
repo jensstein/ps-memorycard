@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::errors::{CryptographyError,Error};
 use crate::memorycard::{MemoryCard, PS2MemoryCard};
-use crate::validate_response_success;
+use crate::{calculate_edc, validate_response_success};
 
 use cbc::cipher::KeyIvInit;
 use cbc::cipher::BlockEncryptMut;
@@ -122,16 +122,6 @@ fn get_auth_cmd(b1: u8, b2: u8) -> [u8; 5] {
 
 fn xor(a1: [u8; 8], a2: [u8; 8]) -> Vec<u8> {
     a1.iter().zip(a2).map(|(x1, x2)| x1 ^ x2).collect()
-}
-
-// https://csrc.nist.gov/glossary/term/error_detection_code
-// This function is a port of the `calcEDC` function in ps3mca-tool
-fn calculate_edc(buf: &[u8]) -> u8 {
-    let mut checksum = 0;
-    for b in buf {
-        checksum ^= b;
-    }
-    checksum
 }
 
 fn parse_auth_response(input: &mut Vec<u8>) -> Vec<u8> {
