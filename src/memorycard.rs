@@ -48,10 +48,21 @@ impl MemoryCard for PS2MemoryCard {
         let _write_result = self.write_to_device(&cmd)?;
         // 17 = 13 (length of command) + 4 (2 ACK bytes + 2 length bytes)
         let response = self.read_from_device(17)?;
+        let page_size = read_u16_byte(&response, 7)?;
+        // This value you can read from the 26h command doesn't seem reliable.
+        // I have a 64MB card which reports itself as 8MB. But you can read the
+        // total number of clusters in the card from the superblock and multiple
+        // that with the number of pages per cluster times the page size. For my
+        // 64MB card this procedure gives the correct size.
+        // https://psi-rockin.github.io/ps2tek/#sio2ps2memcardfilesystem
+        let superblock = self.read_page(0, page_size)?;
+        let total_clusters = read_u32_byte(&superblock, 48)?;
+        let pages_per_cluster = read_u16_byte(&superblock, 42)?;
+        let card_size = total_clusters * pages_per_cluster as u32 * page_size as u32;
         Ok(CardInfo::new(
-            read_u16_byte(&response, 7)?,
+            page_size,
             read_u16_byte(&response, 9)?,
-            read_u32_byte(&response, 11)?))
+            card_size))
     }
 
     fn get_card_type(&self) -> CardType {

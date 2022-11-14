@@ -27,13 +27,12 @@ pub enum CardResult {
 pub struct CardInfo {
     pub page_size: u16,
     block_size: u16,
-    // This value doesn't seem to be reliable. I have a 64MB card which reports itself as 8MB.
     pub card_size: u32,
 }
 
 impl CardInfo {
-    fn new(page_size: u16, block_size: u16, pages: u32) -> Self {
-        Self {page_size, block_size, card_size: pages * page_size as u32}
+    fn new(page_size: u16, block_size: u16, card_size: u32) -> Self {
+        Self {page_size, block_size, card_size}
     }
 }
 
