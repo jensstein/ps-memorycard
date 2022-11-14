@@ -68,22 +68,27 @@ impl MemoryCard for PS2MemoryCard {
         self.read_from_device(1024)?;
         let count = page_size >> 7;
         let mut page_contents = vec![];
-        for _ in 0..count {
+        for i in 0..count {
             // 43h reads data from the address which is set by the 23h command.
             // That means that we don't specify the address to read from here.
             let subcmd = [[0x81, 0x43, 128].as_ref(), [0; 131].as_ref()].concat();
             self.write_to_device(&subcmd)?;
             let subresult = self.read_from_device(138)?;
             if subresult.len() == 138 {
-                page_contents.extend(&subresult[8..136]);
+                let data = &subresult[8..136];
+                let edc = calculate_edc(&data);
+                if subresult[136] != edc {
+                    return Err(Error::new(format!(
+                        "Checksum for page {}/{} did not match received data",
+                        page_number, i)))
+                }
+                page_contents.extend(data);
             } else {
                 return Err(Error::new(
                     format!("Page data read from device returned invalid response length: {}",
                     subresult.len())));
             }
         };
-        // TODO: there should be a verification of the checksum here if the card supports it.
-
         // 81h means read end
         self.write_to_device(&[0x81, 0x81, 0, 0])?;
         // We don't need the response other than for validation
