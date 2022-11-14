@@ -9,6 +9,50 @@ for authentication, only a framework for authenticating if you already
 possess the required keys. Thereby Sony's copyright should not be
 violated.
 
+## MagicGate keys
+In order to use this program with PS2 cards you must supply your own
+MagicGate keys. You need two 16 byte files: k1.bin, k2.bin, and two 8
+byte files: iv1.bin, and iv2.bin.
+
+k1 and k2 are hash keys used for the Triple DES procedure (each file
+should contain two 8 byte keys).
+
+iv1 and iv2 are initial vectors to be used with the corresponding keys.
+
+## Help
+```
+$ ./ps-memorycard --help
+Usage: ps-memorycard <keys-directory> <COMMAND>
+
+Commands:
+  specs       Prints card info
+  dump-image  Dumps the entire card to an image file
+  help        Print this message or the help of the given subcommand(s)
+
+Arguments:
+  <keys-directory>  Directory with MagicGate keys. Should contain iv1.bin, iv2.bin, k1.bin, k2.bin
+
+Options:
+  -h, --help     Print help information
+  -V, --version  Print version information
+```
+
+## Examples
+- `specs` prints some info about the card.
+```bash
+$ ./ps-memorycard card-keys specs
+page size: 512 bytes
+block size: 32 pages
+card size: 64 MB
+```
+- `dump-image` reads all the data sequentially from the card and writes
+  it to a file.
+```bash
+$ ./ps-memorycard card-keys dump-image memorycard.img
+Dumping image to memorycard.img
+[16m] ████████████████████████████████████████ 64.00 MiB/64.00 MiB
+```
+
 ## USB monitoring
 On linux you can monitor the traffic between the host and a USB device
 by loading the `usbmon` kernel module:
