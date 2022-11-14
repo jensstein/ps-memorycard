@@ -10,6 +10,7 @@ use std::io::Write;
 #[derive(Parser)]
 #[command(author, version, about)]
 struct Args {
+    /// Directory with MagicGate keys. Should contain iv1.bin, iv2.bin, k1.bin, k2.bin
     #[arg(value_name = "keys-directory")]
     keys_directory: String,
     #[command(subcommand)]
