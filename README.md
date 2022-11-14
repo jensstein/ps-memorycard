@@ -53,6 +53,9 @@ Dumping image to memorycard.img
 [16m] ████████████████████████████████████████ 64.00 MiB/64.00 MiB
 ```
 
+## Tests
+- To run tests with a physical PS2 card connected, use `cargo test --features test-ps2-card`
+
 ## USB monitoring
 On linux you can monitor the traffic between the host and a USB device
 by loading the `usbmon` kernel module:
