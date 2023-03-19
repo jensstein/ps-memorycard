@@ -27,12 +27,13 @@ pub enum CardResult {
 pub struct CardInfo {
     pub page_size: u16,
     block_size: u16,
+    pub pages_per_cluster: u16,
     pub card_size: u32,
 }
 
 impl CardInfo {
-    fn new(page_size: u16, block_size: u16, card_size: u32) -> Self {
-        Self {page_size, block_size, card_size}
+    fn new(page_size: u16, block_size: u16, pages_per_cluster: u16, card_size: u32) -> Self {
+        Self {page_size, block_size, pages_per_cluster, card_size}
     }
 }
 

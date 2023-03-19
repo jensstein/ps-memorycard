@@ -1,3 +1,5 @@
+use std::collections::{HashMap, VecDeque};
+
 use crate::{errors::Error, CardInfo, calculate_edc, length_in_bytes, read_u16_byte,
     read_u32_byte, write_bytes_to_device, read_bytes_from_device, CardType};
 
@@ -13,13 +15,50 @@ pub trait MemoryCard {
     fn read_page(&self, page_number: u32, page_size: u16) -> Result<Vec<u8>, Error>; // This function reads frames from a PS1 card and pages from a PS2 card
 }
 
+struct ClusterCache {
+    cache: HashMap<u32, Vec<u8>>,
+    clusters_in_cache: VecDeque<u32>,
+}
+
+impl ClusterCache {
+    fn new() -> Self {
+        let cache_size = 64;
+        Self {
+            cache: HashMap::with_capacity(cache_size),
+            clusters_in_cache: VecDeque::with_capacity(cache_size),
+        }
+    }
+
+    fn contains_key(&self, key: &u32) -> bool {
+        self.cache.contains_key(key)
+    }
+
+    fn get(&self, key: &u32) -> Option<&Vec<u8>> {
+        self.cache.get(key)
+    }
+
+    fn insert(&mut self, key: u32, value: Vec<u8>) {
+        if self.clusters_in_cache.len() >= self.clusters_in_cache.capacity() {
+            if let Some(removed_key) = self.clusters_in_cache.pop_front() {
+                self.cache.remove(&removed_key);
+            }
+        }
+        self.clusters_in_cache.push_back(key);
+        self.cache.insert(key, value);
+    }
+}
+
 pub struct PS2MemoryCard {
-    pub device: rusb::DeviceHandle<rusb::GlobalContext>
+    pub device: rusb::DeviceHandle<rusb::GlobalContext>,
+    cluster_cache: ClusterCache,
 }
 
 impl MemoryCard for PS2MemoryCard {
     fn new(device: rusb::DeviceHandle<rusb::GlobalContext>) -> Result<Self, Error> {
-        Ok(Self {device})
+        Ok(Self {
+            device,
+            cluster_cache: ClusterCache::new(),
+        })
     }
 
     fn write_to_device(&self, cmd: &[u8]) -> Result<usize, Error> {
@@ -62,6 +101,7 @@ impl MemoryCard for PS2MemoryCard {
         Ok(CardInfo::new(
             page_size,
             read_u16_byte(&response, 9)?,
+            pages_per_cluster,
             card_size))
     }
 
@@ -126,6 +166,24 @@ impl PS2MemoryCard {
             },
             Err(error) => Err(Error::new(format!("Invalid response from device when getting authentication status: {}", error)))
         }
+    }
+
+    pub fn read_cluster(&mut self, cluster: u32, pages_per_cluster: u16, page_size: u16) -> Result<Vec<u8>, Error> {
+        // TODO: handling of backup_block1 and backup_block2
+        // https://web.archive.org/web/20221014060234/www.csclub.uwaterloo.ca:11068/mymc/ps2mcfs.html
+
+        if self.cluster_cache.contains_key(&cluster) {
+            if let Some(contents) = self.cluster_cache.get(&cluster) {
+                return Ok(contents.to_owned());
+            }
+        }
+        let mut contents = Vec::with_capacity((pages_per_cluster * page_size) as usize);
+        for i in 0..pages_per_cluster {
+            let page = self.read_page(cluster * pages_per_cluster as u32 + i as u32, page_size)?;
+            contents.extend_from_slice(&page);
+        }
+        self.cluster_cache.insert(cluster, contents.clone());
+        Ok(contents)
     }
 }
 
