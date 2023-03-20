@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::errors::{CryptographyError,Error};
-use crate::memorycard::{MemoryCard, PS2MemoryCard};
+use crate::memorycard::PS2MemoryCardPartial;
 use crate::{calculate_edc, validate_response_success};
 
 use cbc::cipher::KeyIvInit;
@@ -18,7 +18,7 @@ struct Challenges {
     c3: Vec<u8>,
 }
 
-impl PS2MemoryCard {
+impl PS2MemoryCardPartial {
     fn auth_cmd(&self, cmd: &[u8], length: usize) -> Result<Vec<u8>, Error> {
         let _write_result = self.write_to_device(&cmd);
         let response = self.read_from_device(length)?;

@@ -124,7 +124,7 @@ fn print_bytes(bytes: &[u8]) {
     println!();
 }
 
-pub fn get_memory_card(vendor: u16, product: u16) -> Result<Option<CardResult>, Error> {
+pub fn get_memory_card(vendor: u16, product: u16, card_keys_directory: Option<&str>) -> Result<Option<CardResult>, Error> {
     for device in rusb::devices()?.iter() {
         let device_desc = device.device_descriptor()?;
         if device_desc.vendor_id() == vendor && device_desc.product_id() == product {
@@ -132,8 +132,13 @@ pub fn get_memory_card(vendor: u16, product: u16) -> Result<Option<CardResult>, 
             let _ = &mut handle.claim_interface(0)?;
             match get_card_type(&handle)? {
                 CardType::PS2 => {
-                    let mc = PS2MemoryCard::new(handle)?;
-                    return Ok(Some(CardResult::PS2(mc)));
+                    match card_keys_directory {
+                        Some(keys_directory) => {
+                            let mc = PS2MemoryCard::new(handle, keys_directory)?;
+                            return Ok(Some(CardResult::PS2(mc)));
+                        },
+                        None => return Err(Error::new("Cannot initiate PS2 memory card with MagicGate keys".into())),
+                    }
                 },
                 _ => {}
             }

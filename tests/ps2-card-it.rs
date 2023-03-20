@@ -8,7 +8,7 @@ mod test {
 
     #[test]
     fn test_authentication() {
-        let mc = get_memory_card(0x054c, 0x02ea).expect("Unable to get memory card").expect("No memory card present");
+        let mc = get_memory_card(0x054c, 0x02ea, Some("card-keys")).expect("Unable to get memory card").expect("No memory card present");
         match mc {
             CardResult::PS1 => {
                 assert!(false, "Cannot test authentication for PS1 type memory card");

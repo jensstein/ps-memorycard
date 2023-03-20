@@ -1,9 +1,8 @@
-use ps_memorycard::{auth::read_card_keys, errors::Error, memorycard::PS2MemoryCard, CardInfo, CardResult, get_memory_card, print_specs};
+use ps_memorycard::{errors::Error, memorycard::PS2MemoryCard, CardInfo, CardResult, get_memory_card, print_specs};
 use ps_memorycard::memorycard::MemoryCard;
 
 use clap::{Parser, Subcommand};
 
-use std::path::Path;
 use std::fs::File;
 use std::io::Write;
 
@@ -30,23 +29,11 @@ enum Commands {
 }
 
 fn get_and_authenticate_card(keys_directory: &str) -> Result<PS2MemoryCard, Error> {
-    match get_memory_card(0x054c, 0x02ea)? {
+    match get_memory_card(0x054c, 0x02ea, Some(keys_directory))? {
         Some(CardResult::PS1) => {
             return Err("PS1 cards are not supported yet.".into());
         },
         Some(CardResult::PS2(mc)) => {
-            if !mc.is_authenticated()? {
-                let card_keys = read_card_keys(Path::new(keys_directory))?;
-                match mc.authenticate(&card_keys) {
-                    Ok(_) => {
-                        mc.validate()?;
-                        mc.set_termination_code()?;
-                    },
-                    Err(error) => {
-                        return Err(format!("Error authenticating card: {}", error).into());
-                    }
-                }
-            }
             Ok(mc)
         },
         None => {
