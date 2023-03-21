@@ -75,9 +75,13 @@ pub struct PS2MemoryCard {
     partial_device: PS2MemoryCardPartial,
 }
 
-// This struct is used to authenticate the ps2 memory card so that the PS2MemoryCard struct can
-// read its superblock when it is instantiated.
-pub struct PS2MemoryCardPartial {
+/*
+ * This struct is used to authenticate the ps2 memory card so that the PS2MemoryCard struct can
+ * read its superblock when it is instantiated.
+ * It is private to the current crate so that only the struct representing the complete memory card
+ * is accesible to outside crates.
+ */
+pub(crate) struct PS2MemoryCardPartial {
     device: rusb::DeviceHandle<rusb::GlobalContext>,
 }
 impl PS2MemoryCardPartial {
