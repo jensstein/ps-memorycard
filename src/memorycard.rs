@@ -1,5 +1,15 @@
+//! Memory card specific operations
+//!
+//! Documentation for the file system of ps2 memory cards come from Ross Ridge, creator of `mymc`:
+//! http://www.csclub.uwaterloo.ca:11068/mymc/ps2mcfs.html
+//! https://web.archive.org/web/20221014060234/www.csclub.uwaterloo.ca:11068/mymc/ps2mcfs.html
+//! I'll refer to it as "RR ps2mc-fs" in the documentation here.
+
 use std::collections::{HashMap, VecDeque};
-use std::path::Path;
+use std::fmt;
+use std::path::{Component, Path};
+
+use chrono::TimeZone;
 
 use crate::{auth::{CardKeys,read_card_keys}, errors::Error, CardInfo, calculate_edc, length_in_bytes, read_u16_byte,
     read_u32_byte, write_bytes_to_device, read_bytes_from_device, CardType};
@@ -226,6 +236,137 @@ impl MemoryCard for PS2MemoryCard {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum DirectoryEntryType {
+    File,
+    Directory,
+    Unknown,
+}
+
+impl fmt::Display for DirectoryEntryType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match self {
+            Self::File => "<file>",
+            Self::Directory => "<dir>",
+            Self::Unknown => "<???>",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+#[derive(Debug)]
+pub struct DirectoryEntry {
+    mode: u16,
+    length: u32,
+    created: Time,
+    cluster: u32,
+    dir_entry: u32,
+    pub modified: Time,
+    attr: u32,
+    pub name: String,
+    pub entry_type: DirectoryEntryType,
+}
+
+impl TryFrom<Vec<u8>> for DirectoryEntry {
+    type Error = Error;
+    fn try_from(bytes: Vec<u8>) -> Result<Self, Error> {
+        let mode = u16::from_le_bytes([bytes[0], bytes[1]]);
+        let length = u32::from_le_bytes(bytes[4..8].try_into()?);
+        let created = time_from_bytes(bytes[8..16].try_into()?);
+        let cluster = u32::from_le_bytes(bytes[16..20].try_into()?);
+        let dir_entry = u32::from_le_bytes(bytes[20..24].try_into()?);
+        let modified = time_from_bytes(bytes[24..32].try_into()?);
+        let attr = u32::from_le_bytes(bytes[32..36].try_into()?);
+        // The filenames are zero-terminated so this line finds first zero or sets `string_end` to
+        // 32 which is the max is there are not zeros.
+        let string_end = &bytes[64..96].iter().position(|i| *i == 0u8).unwrap_or(32);
+        let name = if *string_end > 0 {
+            match String::from_utf8(bytes[64..(64+string_end)].to_vec()) {
+                Ok(name) => name,
+                Err(_err) => {
+                    "<no-name>".into()
+                },
+            }
+        } else {
+            "<no-name>".into()
+        };
+        let entry_type = if mode & 0x0010 == 0x0010 {
+            DirectoryEntryType::File
+        } else if mode & 0x0020 == 0x0020 {
+            DirectoryEntryType::Directory
+        } else {
+            DirectoryEntryType::Unknown
+        };
+        Ok(Self {
+            mode,
+            length,
+            created,
+            cluster,
+            dir_entry,
+            modified,
+            attr,
+            name,
+            entry_type,
+        })
+    }
+}
+
+impl fmt::Display for DirectoryEntry {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let time = match self.modified {
+            Some(time) => time.to_string(),
+            None => "<missing date>".into()
+        };
+        write!(f, "{}\t{}\t{}", self.entry_type, time, self.name)
+    }
+}
+
+type Time = Option<chrono::DateTime<chrono::offset::FixedOffset>>;
+
+/// Parse 8 bytes as a Japanese date given the format found in RR ps2mc-fs
+fn time_from_bytes(bytes: &[u8; 8]) -> Time {
+    // The times are always in the Japanese timezone: UTC+9
+    let timezone = chrono::offset::FixedOffset::east_opt(9 * 3600)?;
+    let year = u16::from_le_bytes([bytes[6], bytes[7]]) as i32;
+    let month = bytes[5] as u32;
+    let day = bytes[4] as u32;
+    let hour = bytes[3] as u32;
+    let minutes = bytes[2] as u32;
+    let seconds = bytes[1] as u32;
+    let t = timezone.with_ymd_and_hms(
+        year, month, day, hour, minutes, seconds
+    );
+    t.single()
+}
+
+#[derive(Copy, Clone)]
+struct FatCluster {
+    has_next_cluster: bool,
+    cluster: u32,
+}
+
+/// Parse an array of u8 as cluster entries (u32 with a special most
+/// significant bit, refer to RR ps2mc-fs under "File Allocation Table".)
+fn read_cluster_list(cluster_list: &[u8]) -> Result<Vec<FatCluster>, Error> {
+    if cluster_list.len() % 4 != 0 {
+        return Err(Error::new("Cluster list must be parsable as 32bit integers".into()));
+    }
+    let mut fat_clusters = Vec::with_capacity(cluster_list.len() / 4);
+    for i in (0..cluster_list.len()).step_by(4) {
+        let entry = u32::from_le_bytes(cluster_list[i..i+4].try_into()?);
+        // Get the most significant bit. If it is set, then the lower 31 bits
+        // point to the next cluster in the list. Otherwise it will be clear and the corresponding
+        // entry will be free.
+        // Refer to RR ps2mc-fs under "File Allocation Table".
+        let has_next_cluster = (entry >> 31) & 1;
+        // Bitwise and to get the lower 31 bits of the u32. These contain the value of the next
+        // cluster in the list.
+        let fc = FatCluster{has_next_cluster: has_next_cluster == 1, cluster: entry & 0xffff};
+        fat_clusters.push(fc);
+    }
+    Ok(fat_clusters)
+}
+
 impl PS2MemoryCard {
     pub fn new(device: rusb::DeviceHandle<rusb::GlobalContext>, keys_directory: &str) -> Result<Self, Error> {
         let partial_device = PS2MemoryCardPartial::new(device)?;
@@ -237,8 +378,119 @@ impl PS2MemoryCard {
         Ok(Self {
             cluster_cache: ClusterCache::new(),
             superblock,
-            partial_device: partial_device,
+            partial_device,
         })
+    }
+
+    /// This function corresponds to `ps2mc.read_fat_cluster` in ps2mc.py from mymc.
+    /// The implementation follows how RR ps2mc-fs gives the algorithm which is slightly different
+    /// from how it's implemented in mymc.
+    fn get_fat_entry(&mut self, fat_index: usize) -> Result<FatCluster, Error> {
+        let entries_per_cluster: usize = (self.superblock.page_len * self.superblock.pages_per_cluster / 4).into();
+        let fat_offset = fat_index % entries_per_cluster;
+        let indirect_index = fat_index / entries_per_cluster;
+        let indirect_offset = indirect_index % entries_per_cluster;
+        let double_indirect_index = indirect_index / entries_per_cluster;
+        let indirect_cluster_n = self.superblock.ifc_list[double_indirect_index];
+        let indirect_cluster = self.read_cluster(indirect_cluster_n)?;
+        let indirect_cluster = read_cluster_list(&indirect_cluster)?;
+        let fat_cluster_n = &indirect_cluster[indirect_offset];
+        let fat_cluster = self.read_cluster(fat_cluster_n.cluster)?;
+        let fat_cluster = read_cluster_list(&fat_cluster)?;
+        let entry = fat_cluster[fat_offset];
+        Ok(entry)
+    }
+
+    /// Get a [`DirectoryEntry`](crate::memorycard::DirectoryEntry) from a file system path.
+    pub fn get_directory_entry_by_path(&mut self, path: &Path) -> Result<Option<DirectoryEntry>, Error> {
+        let mut components = Vec::with_capacity(16);
+        for c in path.components() {
+            match c {
+                Component::Normal(component) => {
+                    let component_str = match component.to_str() {
+                        Some(s) => s,
+                        None => return Err(Error::new(format!(
+                            "Unable to parse path component {component:?} as unicode."))),
+                    };
+                    components.push(component_str);
+                },
+                Component::RootDir => components.push("/"),
+                Component::CurDir | Component::ParentDir => return Err(
+                    Error::new(". and .. is not allowed in paths for memory card files".into())),
+                Component::Prefix(_) => return Err(Error::new(
+                    "Windows path prefix doesn't make sense for PS2 memory cards. Start the path with '/'.".into())),
+            }
+        }
+        if components[0] != "/" {
+            return Err(Error::new("Only absolute paths are supported. Start the path with '/'.".into()));
+        }
+
+        // Start iterating from the root directory
+        let root = self.read_cluster(self.superblock.alloc_offset + self.superblock.rootdir_cluster)?;
+        // Only read the first directory entry here because the second one is just the .. entry.
+        let d = DirectoryEntry::try_from(root[0..512].to_vec())?;
+        // If there is only one path component and the path must start with / then we know that the
+        // root is the relevant directory entry.
+        if components.len() == 1 {
+            return Ok(Some(d));
+        }
+        // Iterate though the directory entries with a lifo queue (stack). Any time a matching filename is
+        // found the stack is cleared.
+        let mut queue = VecDeque::from(self.directory_entries(&d)?);
+        let last_component_index = components.len() - 1;
+        for (i, p) in components[1..].iter().enumerate() {
+            while let Some(entry) = queue.pop_back() {
+                if *p == entry.name {
+                    // Clear the queue to avoid iterating through the irrelevant directories
+                    queue.clear();
+                    if entry.entry_type == DirectoryEntryType::Directory {
+                        // If this is the last component of the path, end the iteration here
+                        if i + 1 == last_component_index {
+                            return Ok(Some(entry));
+                        } else {
+                            // If this is not the last component of the path, iterate through the
+                            // directory.
+                            for e in self.directory_entries(&entry)? {
+                                queue.push_back(e);
+                            }
+                        }
+                    } else {
+                        return Ok(Some(entry));
+                    }
+                    // Jump to the next path component when a matching filename is found
+                    break;
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Get a list of [`DirectoryEntry`](crate::memorycard::DirectoryEntry) from the current
+    /// DirectoryEntry. This raises an error if the current DirectoryEntry is not a directory.
+    pub fn directory_entries(&mut self, directory: &DirectoryEntry) -> Result<Vec<DirectoryEntry>, Error> {
+        if directory.entry_type != DirectoryEntryType::Directory {
+            return Err(Error::new(format!("{} is not a directory so it has no contents to list", directory.name)));
+        }
+        let mut entries = Vec::with_capacity(directory.length as usize);
+        // Use `fat_entry` to follow the linked list of clusters
+        let mut fat_entry = directory.cluster;
+        // A directory entry is 512 bytes, so depending on the size of the cluster there are either
+        // one or two. If there are two per cluster the iteration should be half as long as if
+        // there is only one.
+        for _ in 0..(directory.length / (self.superblock.page_len * self.superblock.pages_per_cluster / 512) as u32) {
+            let fat_cluster = self.get_fat_entry(fat_entry as usize)?;
+            if !fat_cluster.has_next_cluster {
+                break;
+            }
+            fat_entry = fat_cluster.cluster;
+
+            let cluster = self.read_cluster(self.superblock.alloc_offset + fat_entry)?;
+            entries.push(DirectoryEntry::try_from(cluster[0..512].to_vec())?);
+            if cluster.len() == 1024 {
+                entries.push(DirectoryEntry::try_from(cluster[512..1024].to_vec())?);
+            }
+        }
+        Ok(entries)
     }
 
     // This check is called `Card_Changed` in ps3mca-tool

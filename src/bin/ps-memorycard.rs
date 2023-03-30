@@ -1,10 +1,11 @@
 use ps_memorycard::{errors::Error, memorycard::PS2MemoryCard, CardInfo, CardResult, get_memory_card, print_specs};
-use ps_memorycard::memorycard::MemoryCard;
+use ps_memorycard::memorycard::{DirectoryEntryType, MemoryCard};
 
 use clap::{Parser, Subcommand};
 
 use std::fs::File;
 use std::io::Write;
+use std::path::Path;
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -25,6 +26,12 @@ enum Commands {
         /// File to write image to
         #[arg(value_name = "output-file")]
         destination: String
+    },
+    /// List files in directory on the memory card
+    #[command(name = "ls")]
+    List {
+        /// The memory card path to list
+        path: String,
     },
 }
 
@@ -61,15 +68,32 @@ fn dump_card_image(card: &dyn MemoryCard, info: &CardInfo, destination: &str) ->
     Ok(())
 }
 
+fn list_directory_entries(card: &mut PS2MemoryCard, path: &str) -> Result<(), Error> {
+    let entry = card.get_directory_entry_by_path(Path::new(path))?;
+    if let Some(entry) = entry {
+        if entry.entry_type != DirectoryEntryType::Directory {
+            return Err(Error::new(format!("{path} is not a directory.")));
+        }
+        let directory_entries = card.directory_entries(&entry)?;
+        for e in directory_entries {
+            println!("{e}");
+        }
+    } else {
+        eprintln!("Cannot access {path}: No such file or directory");
+    }
+    Ok(())
+}
+
 fn cli() -> Result<(), Error> {
     let args = Args::parse();
-    let mc = get_and_authenticate_card(&args.keys_directory)?;
+    let mut mc = get_and_authenticate_card(&args.keys_directory)?;
     let info = mc.get_card_specs()?;
     match args.command {
         Commands::Specs => print_specs(&mc)?,
         Commands::DumpImage {destination} => {
             dump_card_image(&mc, &info, &destination)?;
         },
+        Commands::List {path} => list_directory_entries(&mut mc, &path)?,
     }
     Ok(())
 }

@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 # cbc: Cipher Block Chaining cryptographic mode, https://docs.rs/cbc/latest/cbc/
 cbc = "0.1"
+chrono = { version = "0.4", default-features = false }
 clap = { version = "4.0", features = ["derive"] }
 # des: Data Encryption Standard, https://docs.rs/des/latest/des/
 # This is the cryptographic standard used by the MagicGate authentication used by ps2 memory cards
