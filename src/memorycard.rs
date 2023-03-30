@@ -186,10 +186,18 @@ impl PS2MemoryCardPartial {
             Ok(b)
         };
 
-        // https://web.archive.org/web/20221014060234/www.csclub.uwaterloo.ca:11068/mymc/ps2mcfs.html
+        let magic = match String::from_utf8(superblock_bytes[0..28].to_vec()) {
+            Ok(magic) => magic,
+            Err(error) => return Err(Error::new(format!("Unable to parse the superblock header: {error}"))),
+        };
+        let version = match String::from_utf8(superblock_bytes[28..40].to_vec()) {
+            Ok(version) => version,
+            Err(error) => return Err(Error::new(format!("Unable to parse version information from the superblock: {error}"))),
+        };
+        // Refer to RR ps2mc-fs under "The Superblock" for an overview of the superblock layout.
         Ok(SuperBlock {
-            magic: String::from_utf8(superblock_bytes[0..28].to_vec()).expect("UPUP"),
-            version: String::from_utf8(superblock_bytes[28..40].to_vec()).expect("YREW"),
+            magic,
+            version,
             page_len: read_u16_byte(&superblock_bytes, 40)?,
             pages_per_cluster: read_u16_byte(&superblock_bytes, 42)?,
             pages_per_block: read_u16_byte(&superblock_bytes, 44)?,
