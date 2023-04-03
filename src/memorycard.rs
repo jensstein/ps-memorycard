@@ -265,7 +265,7 @@ impl fmt::Display for DirectoryEntryType {
 #[derive(Debug)]
 pub struct DirectoryEntry {
     mode: u16,
-    length: u32,
+    pub length: u32,
     created: Time,
     cluster: u32,
     dir_entry: u32,
@@ -538,6 +538,47 @@ impl PS2MemoryCard {
         }
         self.cluster_cache.insert(cluster, contents.clone());
         Ok(contents)
+    }
+
+    fn read_bytes_for_entry<F>(&mut self, fat_entry: u32, total_read: usize,
+            directory_entry_length: usize, callback: &mut F) -> Result<usize, Error>
+            where F: FnMut(Vec<u8>) {
+        let data = self.read_cluster(self.superblock.alloc_offset + fat_entry)?;
+        let read = total_read + data.len();
+        if read > directory_entry_length {
+            let surplus = read - directory_entry_length;
+            let left_to_read = data.len() - surplus;
+            callback(data[0..left_to_read].to_vec());
+            Ok(left_to_read)
+        } else {
+            let data_len = data.len();
+            callback(data);
+            Ok(data_len)
+        }
+    }
+
+    pub fn read_file<F>(&mut self, path: &Path, mut callback: F) -> Result<(), Error>
+            where F: FnMut(Vec<u8>) {
+        if let Some(directory_entry) = self.get_directory_entry_by_path(path)? {
+            if directory_entry.entry_type != DirectoryEntryType::File {
+                return Err(Error::new(format!("{} is not a regular file.", path.display())));
+            }
+
+            let directory_entry_length = directory_entry.length as usize;
+            let mut fat_entry = directory_entry.cluster;
+            let mut read = self.read_bytes_for_entry(fat_entry, 0, directory_entry_length, &mut callback)?;
+            while read < directory_entry_length  {
+                let fat_cluster = self.get_fat_entry(fat_entry as usize)?;
+                if !fat_cluster.has_next_cluster {
+                    break;
+                }
+                fat_entry = fat_cluster.cluster;
+                read += self.read_bytes_for_entry(fat_entry, read, directory_entry_length, &mut callback)?;
+            }
+            Ok(())
+        } else {
+            return Err(Error::new(format!("Cannot access {}: No such file or directory", path.display())));
+        }
     }
 
     pub fn auth_reset(&self) -> Result<(), Error> {

@@ -33,6 +33,16 @@ enum Commands {
         /// The memory card path to list
         path: String,
     },
+    /// Copy file from memory card (copying to is not supported yet)
+    #[command(name = "cp")]
+    Copy {
+        /// Source file to copy
+        #[arg(value_name = "source")]
+        src: String,
+        /// Destination to write copied data to
+        #[arg(value_name = "destination")]
+        dst: String,
+    }
 }
 
 fn get_and_authenticate_card(keys_directory: &str) -> Result<PS2MemoryCard, Error> {
@@ -84,6 +94,44 @@ fn list_directory_entries(card: &mut PS2MemoryCard, path: &str) -> Result<(), Er
     Ok(())
 }
 
+fn copy(card: &mut PS2MemoryCard, src: &str, dst: &str) -> Result<(), Error> {
+    let src = Path::new(&src);
+    let dst = Path::new(&dst);
+    if dst.exists() {
+        println!("{} already exists. Proceed? [yn]", dst.display());
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        input = input.trim().to_lowercase();
+        if input != "yes" && input != "y" {
+            std::process::exit(0);
+        }
+    }
+    if let Some(entry) = card.get_directory_entry_by_path(src)? {
+        let mut file = File::create(dst)?;
+        let bar = indicatif::ProgressBar::new(entry.length as u64);
+        let bar_style = match indicatif::ProgressStyle::with_template("[{elapsed}] {bar:40} {bytes:>7}/{total_bytes:7} {msg}") {
+            Ok(bar_style) => bar_style,
+            Err(error) => return Err(Error::new(format!("Unexpected error when trying to set progress bar style: {}", error)))
+        };
+        bar.set_style(bar_style);
+        let mut callback_error = None;
+        card.read_file(src, |data| {
+            bar.inc(data.len().try_into().expect("Error downcasting length of source file. This should be impossible given the size constraints of memory cards."));
+            if let Err(error) = file.write_all(&data) {
+                callback_error = Some(error);
+            }
+        })?;
+        bar.finish();
+        if let Some(error) = callback_error {
+            Err(error.into())
+        } else {
+            Ok(())
+        }
+    } else {
+        Err(Error::new(format!("Cannot access {}: No such file or directory", src.display())))
+    }
+}
+
 fn cli() -> Result<(), Error> {
     let args = Args::parse();
     let mut mc = get_and_authenticate_card(&args.keys_directory)?;
@@ -94,6 +142,7 @@ fn cli() -> Result<(), Error> {
             dump_card_image(&mc, &info, &destination)?;
         },
         Commands::List {path} => list_directory_entries(&mut mc, &path)?,
+        Commands::Copy {src, dst} => copy(&mut mc, &src, &dst)?,
     }
     Ok(())
 }
