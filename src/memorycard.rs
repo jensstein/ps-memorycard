@@ -348,14 +348,14 @@ fn time_from_bytes(bytes: &[u8; 8]) -> Time {
 }
 
 #[derive(Copy, Clone)]
-struct FatCluster {
+struct FatEntry {
     has_next_cluster: bool,
     cluster: u32,
 }
 
 /// Parse an array of u8 as cluster entries (u32 with a special most
 /// significant bit, refer to RR ps2mc-fs under "File Allocation Table".)
-fn read_cluster_list(cluster_list: &[u8]) -> Result<Vec<FatCluster>, Error> {
+fn read_cluster_list(cluster_list: &[u8]) -> Result<Vec<FatEntry>, Error> {
     if cluster_list.len() % 4 != 0 {
         return Err(Error::new("Cluster list must be parsable as 32bit integers".into()));
     }
@@ -369,7 +369,7 @@ fn read_cluster_list(cluster_list: &[u8]) -> Result<Vec<FatCluster>, Error> {
         let has_next_cluster = (entry >> 31) & 1;
         // Bitwise and to get the lower 31 bits of the u32. These contain the value of the next
         // cluster in the list.
-        let fc = FatCluster{has_next_cluster: has_next_cluster == 1, cluster: entry & 0xffff};
+        let fc = FatEntry{has_next_cluster: has_next_cluster == 1, cluster: entry & 0xffff};
         fat_clusters.push(fc);
     }
     Ok(fat_clusters)
@@ -393,7 +393,7 @@ impl PS2MemoryCard {
     /// This function corresponds to `ps2mc.read_fat_cluster` in ps2mc.py from mymc.
     /// The implementation follows how RR ps2mc-fs gives the algorithm which is slightly different
     /// from how it's implemented in mymc.
-    fn get_fat_entry(&mut self, fat_index: usize) -> Result<FatCluster, Error> {
+    fn get_fat_entry(&mut self, fat_index: usize) -> Result<FatEntry, Error> {
         // The part where we divide by 4 is taken from mymc. RR ps2mc-fs
         // documents each entry being 32 bits thereby corresponding to four 8-bit bytes.
         let entries_per_cluster: usize = (self.superblock.page_len * self.superblock.pages_per_cluster / 4).into();
