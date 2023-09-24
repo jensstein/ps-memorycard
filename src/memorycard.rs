@@ -394,6 +394,8 @@ impl PS2MemoryCard {
     /// The implementation follows how RR ps2mc-fs gives the algorithm which is slightly different
     /// from how it's implemented in mymc.
     fn get_fat_entry(&mut self, fat_index: usize) -> Result<FatCluster, Error> {
+        // The part where we divide by 4 is taken from mymc. RR ps2mc-fs
+        // documents each entry being 32 bits thereby corresponding to four 8-bit bytes.
         let entries_per_cluster: usize = (self.superblock.page_len * self.superblock.pages_per_cluster / 4).into();
         let fat_offset = fat_index % entries_per_cluster;
         let indirect_index = fat_index / entries_per_cluster;
