@@ -113,7 +113,7 @@ impl PS2MemoryCardPartial {
     }
 
     pub fn read_from_device(&self, response_len: usize) -> Result<Vec<u8>, Error> {
-        // If you read too few bytes you will get seemingly unintelligent errors. ps3mca-tool takes
+        // If you read too few bytes you will get seemingly unintelligible errors. ps3mca-tool takes
         // the approach of always reading 1024 bytes.
         let response = read_bytes_from_device(&self.device, response_len)?;
         if response[0] != 0x55 {
@@ -286,7 +286,7 @@ impl TryFrom<Vec<u8>> for DirectoryEntry {
         let modified = time_from_bytes(bytes[24..32].try_into()?);
         let attr = u32::from_le_bytes(bytes[32..36].try_into()?);
         // The filenames are zero-terminated so this line finds first zero or sets `string_end` to
-        // 32 which is the max is there are not zeros.
+        // 32 which is the max if there are no zeros.
         let string_end = &bytes[64..96].iter().position(|i| *i == 0u8).unwrap_or(32);
         let name = if *string_end > 0 {
             match String::from_utf8(bytes[64..(64+string_end)].to_vec()) {
