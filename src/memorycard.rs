@@ -365,11 +365,19 @@ fn read_cluster_list(cluster_list: &[u8]) -> Result<Vec<FatEntry>, Error> {
         // Get the most significant bit. If it is set, then the lower 31 bits
         // point to the next cluster in the list. Otherwise it will be clear and the corresponding
         // entry will be free.
+        // Some entries are 0xffffffff which indicates that they are the last cluster in a file.
         // Refer to RR ps2mc-fs under "File Allocation Table".
-        let has_next_cluster = (entry >> 31) & 1;
-        // Bitwise and to get the lower 31 bits of the u32. These contain the value of the next
+        let has_next_cluster = if entry == 0xffffffff {
+            false
+        } else {
+            // 0x80000000 translates to 0b10000000000000000000000000000000 so by and'ing you get
+            // the most significant bit
+            entry & 0x80000000 > 0
+        };
+        // Bitwise and by 0x7fffffff which translates to 0b01111111111111111111111111111111
+        // to get the lower 31 bits of the u32. These contain the value of the next
         // cluster in the list.
-        let fc = FatEntry{has_next_cluster: has_next_cluster == 1, cluster: entry & 0xffff};
+        let fc = FatEntry{has_next_cluster, cluster: entry & 0x7fffffff};
         fat_clusters.push(fc);
     }
     Ok(fat_clusters)
