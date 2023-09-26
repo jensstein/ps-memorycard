@@ -542,8 +542,18 @@ impl PS2MemoryCard {
         let mut contents = Vec::with_capacity((self.superblock.pages_per_cluster *
             self.superblock.page_len) as usize);
         for i in 0..self.superblock.pages_per_cluster {
-            let page = self.partial_device.read_page(cluster *
-                self.superblock.pages_per_cluster as u32 + i as u32, self.superblock.page_len)?;
+            let page_num = match cluster.checked_mul(self.superblock.pages_per_cluster as u32) {
+                Some(page_num) => page_num,
+                None => return Err(Error::new(format!(
+                    "Reading page for cluster {cluster} failed. Cluster number is too high (multiplying {cluster} and {}).",
+                    self.superblock.pages_per_cluster))),
+            };
+            let page_num = match page_num.checked_add(i as u32) {
+                Some(page_num) => page_num,
+                None => return Err(Error::new(format!(
+                    "Reading page for cluster {cluster} failed. Cluster number is too high (adding {i} to {page_num})."))),
+            };
+            let page = self.partial_device.read_page(page_num, self.superblock.page_len)?;
             contents.extend_from_slice(&page);
         }
         self.cluster_cache.insert(cluster, contents.clone());
