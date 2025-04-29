@@ -249,6 +249,7 @@ pub enum DirectoryEntryType {
     File,
     Directory,
     Unknown,
+    Deleted,
 }
 
 impl fmt::Display for DirectoryEntryType {
@@ -257,6 +258,8 @@ impl fmt::Display for DirectoryEntryType {
             Self::File => "<file>",
             Self::Directory => "<dir>",
             Self::Unknown => "<???>",
+            // Should not actually be displayed
+            Self::Deleted => "<del>",
         };
         write!(f, "{}", s)
     }
@@ -298,7 +301,9 @@ impl TryFrom<Vec<u8>> for DirectoryEntry {
         } else {
             "<no-name>".into()
         };
-        let entry_type = if mode & 0x0010 == 0x0010 {
+        let entry_type = if mode & 0x8000 == 0 {
+            DirectoryEntryType::Deleted
+        } else if mode & 0x0010 == 0x0010 {
             DirectoryEntryType::File
         } else if mode & 0x0020 == 0x0020 {
             DirectoryEntryType::Directory
@@ -503,9 +508,15 @@ impl PS2MemoryCard {
             fat_entry = fat_cluster.cluster;
 
             let cluster = self.read_cluster(self.superblock.alloc_offset + fat_entry)?;
-            entries.push(DirectoryEntry::try_from(cluster[0..512].to_vec())?);
+            let entry_1 = DirectoryEntry::try_from(cluster[0..512].to_vec())?;
+            if entry_1.entry_type != DirectoryEntryType::Deleted {
+                entries.push(entry_1);
+            }
             if cluster.len() == 1024 {
-                entries.push(DirectoryEntry::try_from(cluster[512..1024].to_vec())?);
+                let entry_2 = DirectoryEntry::try_from(cluster[512..1024].to_vec())?;
+                if entry_2.entry_type != DirectoryEntryType::Deleted {
+                    entries.push(entry_2);
+                }
             }
         }
         Ok(entries)
